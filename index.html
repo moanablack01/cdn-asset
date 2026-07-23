@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CDN Storage Viewer</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f6f8fa; color: #24292f; margin: 0; padding: 0; }
+        header { background-color: #24292f; color: white; padding: 20px; text-align: center; }
+        header h1 { margin: 0; font-size: 24px; }
+        header p { margin: 5px 0 0 0; font-size: 14px; color: #8c959f; }
+        .container { max-width: 1000px; margin: 20px auto; padding: 0 20px; }
+        
+        /* Grid System */
+        .file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
+        
+        /* File Card */
+        .file-card { background: white; border: 1px solid #d0d7de; border-radius: 6px; padding: 15px; text-align: center; transition: box-shadow 0.2s; display: flex; flex-direction: column; justify-content: space-between; align-items: center; }
+        .file-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-color: #0969da; }
+        .file-icon { font-size: 40px; margin-bottom: 10px; }
+        .file-preview { width: 100%; height: 100px; object-fit: contain; margin-bottom: 10px; border-radius: 4px; background-color: #f6f8fa; }
+        .file-name { font-size: 13px; font-weight: 600; word-break: break-all; margin-bottom: 15px; flex-grow: 1; }
+        
+        /* Buttons */
+        .copy-btn { background-color: #f6f8fa; border: 1px solid #d0d7de; color: #24292f; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; width: 100%; transition: 0.2s; }
+        .copy-btn:hover { background-color: #f3f4f6; border-color: #0969da; }
+        .copy-btn.success { background-color: #2da44e; color: white; border-color: #2da44e; }
+        
+        /* Loader & Error */
+        #loader { text-align: center; padding: 50px; color: #57606a; }
+        .error-message { background-color: #ffebe9; border: 1px solid #ff818250; color: #cf222e; padding: 15px; border-radius: 6px; text-align: center; }
+        
+        /* Breadcrumb (Navigasi Folder) */
+        .breadcrumb { margin-bottom: 20px; font-size: 14px; font-weight: 600; }
+        .breadcrumb a { color: #0969da; text-decoration: none; cursor: pointer; }
+        .breadcrumb a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>📦 CDN Storage Asset</h1>
+    <p id="repo-info">Memuat informasi repository...</p>
+</header>
+
+<div class="container">
+    <div class="breadcrumb" id="breadcrumb">
+        <!-- Breadcrumb akan di-generate di sini -->
+    </div>
+
+    <div id="loader">Mencari file di repository... ⏳</div>
+    <div id="file-grid" class="file-grid">
+        <!-- File cards akan muncul di sini -->
+    </div>
+</div>
+
+<script>
+    // Konfigurasi Default (Bisa diganti jika tidak dijalankan di GitHub Pages)
+    let CONFIG = {
+        username: "moanablack01",
+        repo: "cdn-asset",
+        path: "" // Path folder saat ini
+    };
+
+    // Auto-Detect: Jika dijalankan di GitHub Pages, otomatis ambil username & repo dari URL
+    const host = window.location.hostname;
+    const pathName = window.location.pathname;
+    
+    if (host.includes('github.io')) {
+        CONFIG.username = host.split('.')[0];
+        const repoFromUrl = pathName.split('/')[1];
+        if (repoFromUrl) CONFIG.repo = repoFromUrl;
+    }
+
+    const baseUrl = `https://${CONFIG.username}.github.io/${CONFIG.repo}/`;
+    document.getElementById('repo-info').innerText = `${CONFIG.username}/${CONFIG.repo}`;
+
+    // Fungsi utama mengambil data file dari GitHub API
+    async function fetchFiles(currentPath = "") {
+        CONFIG.path = currentPath;
+        updateBreadcrumb();
+        
+        const loader = document.getElementById('loader');
+        const grid = document.getElementById('file-grid');
+        
+        loader.style.display = 'block';
+        grid.innerHTML = '';
+
+        try {
+            // Panggil GitHub API
+            const apiUrl = `https://api.github.com/repos/${CONFIG.username}/${CONFIG.repo}/contents/${currentPath}`;
+            const response = await fetch(apiUrl);
+            
+            if (!response.ok) throw new Error("Gagal mengambil data. Pastikan repository bersifat Public.");
+            
+            const files = await response.json();
+            loader.style.display = 'none';
+
+            // Filter agar file index.html (dan file sistem seperti CNAME/config) tidak ditampilkan
+            const filteredFiles = files.filter(f => f.name !== 'index.html' && f.name !== 'config.js');
+
+            if (filteredFiles.length === 0) {
+                grid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: #57606a;">Folder ini kosong.</div>`;
+                return;
+            }
+
+            // Generate tampilan (Card) untuk tiap file
+            filteredFiles.forEach(file => {
+                const card = document.createElement('div');
+                card.className = 'file-card';
+
+                if (file.type === 'dir') {
+                    // Jika itu adalah Folder
+                    card.innerHTML = `
+                        <div class="file-icon">📁</div>
+                        <div class="file-name">${file.name}</div>
+                        <button class="copy-btn" onclick="fetchFiles('${file.path}')">Buka Folder</button>
+                    `;
+                } else {
+                    // Jika itu adalah File
+                    const fileExt = file.name.split('.').pop().toLowerCase();
+                    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(fileExt);
+                    const fileUrl = `${baseUrl}${file.path}`; // URL GitHub Pages
+                    
+                    let previewHtml = '';
+                    if (isImage) {
+                        previewHtml = `<img src="${file.download_url}" class="file-preview" alt="${file.name}" loading="lazy">`;
+                    } else {
+                        previewHtml = `<div class="file-icon">📄</div>`;
+                    }
+
+                    card.innerHTML = `
+                        ${previewHtml}
+                        <div class="file-name" title="${file.name}">${file.name}</div>
+                        <button class="copy-btn" onclick="copyUrl(this, '${fileUrl}')">Copy URL</button>
+                    `;
+                }
+                grid.appendChild(card);
+            });
+
+        } catch (error) {
+            loader.style.display = 'none';
+            grid.innerHTML = `<div class="error-message">⚠️ ${error.message}</div>`;
+        }
+    }
+
+    // Fungsi untuk memperbarui navigasi (Breadcrumb)
+    function updateBreadcrumb() {
+        const breadcrumbEl = document.getElementById('breadcrumb');
+        let html = `<a onclick="fetchFiles('')">🏠 Root</a>`;
+        
+        if (CONFIG.path) {
+            const parts = CONFIG.path.split('/');
+            let currentPath = '';
+            parts.forEach((part, index) => {
+                currentPath += (index === 0 ? part : '/' + part);
+                html += ` / <a onclick="fetchFiles('${currentPath}')">${part}</a>`;
+            });
+        }
+        breadcrumbEl.innerHTML = html;
+    }
+
+    // Fungsi untuk Copy URL
+    function copyUrl(btn, url) {
+        navigator.clipboard.writeText(url).then(() => {
+            const originalText = btn.innerText;
+            btn.innerText = "✅ Tersalin!";
+            btn.classList.add("success");
+            
+            setTimeout(() => {
+                btn.innerText = originalText;
+                btn.classList.remove("success");
+            }, 2000);
+        }).catch(err => {
+            alert('Gagal menyalin link: ' + err);
+        });
+    }
+
+    // Jalankan fungsi saat pertama kali halaman dibuka
+    window.onload = () => fetchFiles("");
+</script>
+
+</body>
+</html>
